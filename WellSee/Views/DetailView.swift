@@ -36,7 +36,7 @@ struct DetailView: View {
                     } label: {
                         HStack(spacing: 6) {
                             Circle().fill(item.genre.color).frame(width: 9, height: 9)
-                            Text(item.genre.label)
+                            Text(item.genreText)
                             Image(systemName: "chevron.up.chevron.down").font(.caption2)
                         }
                         .font(.subheadline.weight(.semibold))
@@ -54,15 +54,27 @@ struct DetailView: View {
                             .foregroundStyle(.secondary)
                             .textSelection(.enabled)
                     }
+                    if !item.pointList.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(item.pointList, id: \.self) { point in
+                                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                    Text("・").foregroundStyle(item.genre.color)
+                                    Text(point)
+                                }
+                                .font(.subheadline)
+                            }
+                        }
+                        .padding(.top, 4)
+                    }
                 }
 
                 actions
 
+                // 情報の並びは、どの項目でも同じ：共有元 → 日付 → 場所 → その内容ならではの項目 → 取り込み日
                 VStack(spacing: 0) {
                     row("共有元", item.sourceName.isEmpty ? "不明" : item.sourceName)
-                    row("取り込み日", DateText.saved(item.createdAt))
                     if let date = item.eventDate {
-                        row("日付", DateText.event(date) + "（" + DateText.remaining(date) + "）")
+                        row("日付", DateText.span(date, item.eventEnd) + "（" + DateText.status(date, item.eventEnd) + "）")
                     }
                     if let place = item.placeName, !place.isEmpty, place != item.title {
                         row("場所", place)
@@ -70,6 +82,10 @@ struct DetailView: View {
                     if let address = item.address, !address.isEmpty {
                         row("住所", address)
                     }
+                    ForEach(item.details, id: \.self) { detail in
+                        row(detail.label, detail.value)
+                    }
+                    row("取り込み日", DateText.saved(item.createdAt))
                 }
                 .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
 

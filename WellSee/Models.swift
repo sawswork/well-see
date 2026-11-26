@@ -85,6 +85,25 @@ final class Item {
     var embedding: Data?
     var analyzed: Bool
     var attempts: Int
+    // ここから下は後から足した項目。既存のデータを引き継げるよう、初期値を持たせる。
+    /// ピン留め（一覧のいちばん上に置く）。
+    var pinned: Bool = false
+    /// ジャンルの中の細かい分類（アニメ、寿司 など）。
+    var category: String = ""
+    /// 検索用の関連語。「、」区切り。
+    var keywords: String = ""
+    /// 要点。改行区切り。
+    var points: String = ""
+    /// 投稿者・チャンネル・著者。
+    var author: String = ""
+    /// 詳細に並べる「項目名：値」。JSON。
+    var detailsData: Data? = nil
+    /// 期間の最後の日。
+    var eventEnd: Date? = nil
+    /// どの版の解析で読んだか。古いものは読み直す。
+    var analysisVersion: Int = 0
+
+    static let currentAnalysisVersion = 2
 
     init(urlString: String?, rawText: String?, imageData: Data?, isOwnImage: Bool, createdAt: Date = Date()) {
         self.id = UUID()
@@ -124,9 +143,29 @@ final class Item {
         return analyzed ? "名称未設定" : "読み込み中"
     }
 
-    /// ベクトルにする文章。大事な順に並べる。
+    var details: [Detail] {
+        get {
+            guard let detailsData else { return [] }
+            return (try? JSONDecoder().decode([Detail].self, from: detailsData)) ?? []
+        }
+        set { detailsData = try? JSONEncoder().encode(newValue) }
+    }
+
+    var pointList: [String] {
+        points.split(whereSeparator: \.isNewline).map(String.init)
+    }
+
+    /// 予定の最後の日（期間でなければ開始日）。
+    var eventLast: Date? { eventEnd ?? eventDate }
+
+    /// 「記事・アニメ」のような表示。
+    var genreText: String {
+        category.isEmpty ? genre.label : genre.label + "・" + category
+    }
+
+    /// ベクトルにする文章。ページ全体ではなく、中身を表す言葉だけを使う。
     var embeddingText: String {
-        [title, summary, placeName ?? "", address ?? "", sourceName, genre.label, String(bodyText.prefix(300))]
+        [title, category, keywords, summary, placeName ?? "", genre.label]
             .filter { !$0.isEmpty }
             .joined(separator: "\n")
     }
@@ -177,6 +216,19 @@ enum DateText {
             ? weekday.string(from: date) : dayWithYear.string(from: date)
         if comps.hour == 0 && comps.minute == 0 { return base }
         return base + " " + time.string(from: date)
+    }
+
+    /// 期間の表示。「11月6日(金)〜12月6日(日)」。
+    static func span(_ start: Date, _ end: Date?) -> String {
+        guard let end, !Calendar.current.isDate(start, inSameDayAs: end) else { return event(start) }
+        return weekday.string(from: start) + "〜" + weekday.string(from: end)
+    }
+
+    /// 「あと3日」「開催中」「3日前」。
+    static func status(_ start: Date, _ end: Date?) -> String {
+        let today = Calendar.current.startOfDay(for: Date())
+        if let end, start <= Date(), end >= today, !Calendar.current.isDate(start, inSameDayAs: end) { return "開催中" }
+        return remaining(start)
     }
 
     /// 「あと3日」「今日」「3日前」。

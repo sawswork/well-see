@@ -14,26 +14,23 @@ struct WellSeeApp: App {
     }
 }
 
+/// 画面の行き先。
+enum Route: Hashable {
+    case item(UUID)
+    case map
+    case schedule
+}
+
 struct RootView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var importer: Importer
 
     var body: some View {
-        TabView {
-            Tab("すべて", systemImage: "square.grid.2x2") {
-                LibraryView()
+        HomeView()
+            .onAppear { importer.refresh(context) }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { importer.refresh(context) }
             }
-            Tab("マップ", systemImage: "map") {
-                MapTab()
-            }
-            Tab("予定", systemImage: "calendar") {
-                ScheduleTab()
-            }
-        }
-        .onAppear { importer.refresh(context) }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active { importer.refresh(context) }
-        }
     }
 }

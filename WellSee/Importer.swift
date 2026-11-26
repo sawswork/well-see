@@ -21,8 +21,14 @@ final class Importer: ObservableObject {
         }
         // 前回、通信できずに終わったものをやり直す。
         let all = (try? context.fetch(FetchDescriptor<Item>())) ?? []
-        for item in all where !item.analyzed && item.attempts < 4 && !queue.contains(item.id) {
-            queue.append(item.id)
+        for item in all where !queue.contains(item.id) {
+            if !item.analyzed && item.attempts < 4 {
+                queue.append(item.id)
+            } else if item.analysisVersion < Item.currentAnalysisVersion {
+                // 解析のしくみが新しくなったので、読み直す。
+                item.attempts = 0
+                queue.append(item.id)
+            }
         }
         try? context.save()
         run(context)
@@ -67,7 +73,12 @@ final class Importer: ObservableObject {
                 let id = queue.removeFirst()
                 let all = (try? context.fetch(FetchDescriptor<Item>())) ?? []
                 if let item = all.first(where: { $0.id == id }) {
-                    await analyze(item)
+                    // 分類の言葉がばらつかないよう、すでに使っている分類を渡す。
+                    var known: [String] = []
+                    for other in all where !other.category.isEmpty && !known.contains(other.category) {
+                        known.append(other.category)
+                    }
+                    await analyze(item, knownCategories: known)
                     try? context.save()
                 }
                 pending = queue.count
@@ -76,10 +87,13 @@ final class Importer: ObservableObject {
         }
     }
 
-    private func analyze(_ item: Item) async {
+    private func analyze(_ item: Item, knownCategories: [String]) async {
         item.attempts += 1
         let reading = await Analyzer.read(url: item.url, text: item.rawText,
-                                          image: item.isOwnImage ? item.imageData : nil)
+                                          image: item.isOwnImage ? item.imageData : nil,
+                                          knownCategories: knownCategories)
+        // 通信できなかったときは、前に読めた内容を消さない。
+        if !reading.reachedPage, item.analysisVersion > 0 { return }
         item.title = reading.title
         item.summary = reading.summary
         item.genre = reading.genre
@@ -91,7 +105,13 @@ final class Importer: ObservableObject {
             item.latitude = lat
             item.longitude = lon
         }
-        item.eventDate = reading.eventDate
+        item.eventDate = reading.eventStart
+        item.eventEnd = reading.eventEnd
+        item.category = reading.category
+        item.keywords = reading.keywords.joined(separator: "、")
+        item.points = reading.points.joined(separator: "\n")
+        item.author = reading.author
+        item.details = reading.details
         if !item.isOwnImage, let thumbnail = reading.thumbnail {
             item.imageData = thumbnail
         }
@@ -102,6 +122,7 @@ final class Importer: ObservableObject {
         Thumbnails.forget(item.id)
         // 通信できなかったときは、次に開いたときにやり直す。
         item.analyzed = reading.reachedPage || item.attempts >= 4
+        if reading.reachedPage { item.analysisVersion = Item.currentAnalysisVersion }
     }
 }
 
@@ -116,7 +137,10 @@ enum CalendarWriter {
         event.title = item.displayTitle
         event.startDate = date
         let comps = Calendar.current.dateComponents([.hour, .minute], from: date)
-        if comps.hour == 0 && comps.minute == 0 {
+        if let end = item.eventEnd, end > date {
+            event.isAllDay = true
+            event.endDate = end
+        } else if comps.hour == 0 && comps.minute == 0 {
             event.isAllDay = true
             event.endDate = date
         } else {

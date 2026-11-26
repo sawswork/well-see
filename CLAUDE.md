@@ -9,7 +9,7 @@ iPhone / iPad アプリ「ウィルシー」。ほかのアプリや Web サイ�
 2. 取り込んだものを解析し、共有元・ジャンル・取り込み日を付けて登録する。
 3. 日付のあるものは「予定」に並べ、場所のあるものは「マップ」にピンを立てる。
 4. ベクトル検索（意味の近さ）と言葉の一致を合わせた検索。
-5. ジャンルごとの絞り込み。
+5. ジャンルと、その中の分類（アニメ、寿司 など）での絞り込み。ピン留めと削除はスワイプで。
 6. 見た目はシンプルに。細部は丁寧に。
 
 状態（気になる／行きたい）、メモ、きっかけ、ふりかえり、友人への共有、課金は**まだ入れていない**。
@@ -33,7 +33,7 @@ iPhone / iPad アプリ「ウィルシー」。ほかのアプリや Web サイ�
 | `WellSee/Analyzer.swift` | 解析。ページの埋め込み情報 → サイトごとの決まり → 端末内AI の順 |
 | `WellSee/Search.swift` | ベクトル化（`Embedder`）と検索（`SearchEngine`） |
 | `WellSee/Importer.swift` | 置き場から取り込み、順番に解析する。カレンダー登録もここ |
-| `WellSee/Views/` | 画面（すべて／マップ／予定／詳細） |
+| `WellSee/Views/` | 画面（ホーム／マップ／予定／詳細）。ホーム1画面で、操作は画面の下に集める |
 | `.github/workflows/build.yml` | 署名なしのコンパイル確認 |
 | `.github/workflows/testflight.yml` | アーカイブ → 権限付け → 署名 → TestFlight |
 | `docs/design.md` | 仕様 |
@@ -79,6 +79,8 @@ white-search と同じ値でよい。
 - 端末内AI（Foundation Models）が使えない端末でも動くようにする。AI は足りないところを埋めるだけ。
 - Foundation Models の API は記憶で書かず、公式文書で確かめる。
   `https://developer.apple.com/tutorials/data/documentation/foundationmodels.json`
+- 解析のしくみを変えたら `Item.currentAnalysisVersion` を上げる（既存のものが次の起動で読み直される）。
+- `Item` に項目を足すときは初期値を付ける（既存のデータを引き継ぐため）。
 - コード内のコメントと画面の文言は日本語。
 - 持ち主にしか決められないことは、作業を止めて聞く（推奨を添えて、1つずつ）。
 - 変更したらこまめにコミットして push する。

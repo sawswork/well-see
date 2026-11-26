@@ -99,6 +99,15 @@ enum ImageTools {
         return jpeg(from: source, maxPixel: maxPixel)
     }
 
+    /// 画像の大きさ（ピクセル）。
+    static func pixelSize(_ data: Data) -> (width: Int, height: Int)? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let w = props[kCGImagePropertyPixelWidth] as? Int,
+              let h = props[kCGImagePropertyPixelHeight] as? Int else { return nil }
+        return (w, h)
+    }
+
     /// 写真に埋め込まれた撮影場所。
     static func gps(from source: CGImageSource) -> (latitude: Double, longitude: Double)? {
         guard let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],

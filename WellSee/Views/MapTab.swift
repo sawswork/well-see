@@ -3,7 +3,7 @@ import SwiftData
 import MapKit
 
 /// 場所のわかるものを地図に出す。ピンの色はジャンルの色。
-struct MapTab: View {
+struct MapScreen: View {
     @Query(sort: \Item.createdAt, order: .reverse) private var items: [Item]
     @State private var selection: UUID?
     @State private var position: MapCameraPosition = .automatic
@@ -28,57 +28,50 @@ struct MapTab: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Map(position: $position, selection: $selection) {
-                ForEach(pins) { item in
-                    Marker(item.placeName ?? item.displayTitle, systemImage: item.genre.symbol,
-                           coordinate: item.coordinate ?? CLLocationCoordinate2D())
-                        .tint(item.genre.color)
-                        .tag(item.id)
-                }
+        Map(position: $position, selection: $selection) {
+            ForEach(pins) { item in
+                Marker(item.placeName ?? item.displayTitle, systemImage: item.genre.symbol,
+                       coordinate: item.coordinate ?? CLLocationCoordinate2D())
+                    .tint(item.genre.color)
+                    .tag(item.id)
             }
-            .safeAreaInset(edge: .top, spacing: 0) {
-                if usedGenres.count > 1 {
-                    GenreBar(genres: usedGenres, selection: $genre)
-                        .background(.bar)
-                }
-            }
-            .safeAreaInset(edge: .bottom) {
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 0) {
                 if let item = selected {
-                    NavigationLink(value: item.id) {
+                    NavigationLink(value: Route.item(item.id)) {
                         HStack(spacing: 0) {
                             ItemRow(item: item)
                             Image(systemName: "chevron.right")
                                 .font(.footnote.weight(.semibold))
                                 .foregroundStyle(.secondary)
-                                .padding(.trailing, 18)
                         }
+                        .padding(14)
                         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                         .padding(.horizontal, 12)
                         .padding(.bottom, 8)
                     }
                     .buttonStyle(.plain)
                 }
-            }
-            .overlay {
-                if located.isEmpty {
-                    ContentUnavailableView(
-                        "地図に出せるものがありません",
-                        systemImage: "map",
-                        description: Text("お店や場所、イベントのページを取り込むと、ここにピンが立ちます。"))
+                if usedGenres.count > 1 {
+                    GenreBar(genres: usedGenres, selection: $genre)
+                        .background(.bar)
                 }
             }
-            .navigationTitle("マップ")
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationDestination(for: UUID.self) { id in
-                if let item = items.first(where: { $0.id == id }) {
-                    DetailView(item: item)
-                }
+        }
+        .overlay {
+            if located.isEmpty {
+                ContentUnavailableView(
+                    "地図に出せるものがありません",
+                    systemImage: "map",
+                    description: Text("お店や場所、イベントのページを取り込むと、ここにピンが立ちます。"))
             }
-            .onChange(of: genre) { _, _ in
-                selection = nil
-                position = .automatic
-            }
+        }
+        .navigationTitle("マップ")
+        .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: genre) { _, _ in
+            selection = nil
+            position = .automatic
         }
     }
 }

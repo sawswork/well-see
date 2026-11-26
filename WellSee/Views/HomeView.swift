@@ -1,0 +1,395 @@
+import SwiftUI
+import SwiftData
+
+/// ホーム。取り込んだもの全部が並ぶ。
+/// 検索・絞り込み・地図・予定・追加は、親指の届く画面の下にまとめてある。
+struct HomeView: View {
+    @Environment(\.modelContext) private var context
+    @EnvironmentObject private var importer: Importer
+    @Query(sort: \Item.createdAt, order: .reverse) private var items: [Item]
+
+    @State private var path: [Route] = []
+    @State private var genre: Genre?
+    @State private var category: String?
+    @State private var query = ""
+    @State private var hits: [UUID]?
+    @State private var showAdd = false
+    @State private var addText = ""
+    @FocusState private var searching: Bool
+
+    private var shown: [Item] {
+        var list: [Item]
+        if let hits {
+            let map = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            list = hits.compactMap { map[$0] }
+        } else {
+            // ピン留めしたものを上に。
+            list = items.filter(\.pinned) + items.filter { !$0.pinned }
+        }
+        if let genre { list = list.filter { $0.genre == genre } }
+        if let category { list = list.filter { $0.category == category } }
+        return list
+    }
+
+    private var usedGenres: [Genre] {
+        Genre.allCases.filter { g in items.contains { $0.genre == g } }
+    }
+
+    /// 選んでいるジャンルの中にある分類。
+    private var categories: [String] {
+        guard let genre else { return [] }
+        var out: [String] = []
+        for item in items where item.genre == genre && !item.category.isEmpty && !out.contains(item.category) {
+            out.append(item.category)
+        }
+        return out
+    }
+
+    var body: some View {
+        NavigationStack(path: $path) {
+            Group {
+                if items.isEmpty {
+                    EmptyGuide()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    list
+                }
+            }
+            .toolbar(.hidden, for: .navigationBar)
+            .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
+            .task(id: query) { await runSearch() }
+            .onChange(of: genre) { _, _ in category = nil }
+            .alert("URLを追加", isPresented: $showAdd) {
+                TextField("https://", text: $addText)
+                    .keyboardType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Button("追加") { importer.add(urlString: addText, context: context) }
+                Button("キャンセル", role: .cancel) {}
+            } message: {
+                Text("ふだんは、ほかのアプリの共有ボタンから「ウィルシー」を選ぶだけで入ります。")
+            }
+            .navigationDestination(for: Route.self) { route in
+                switch route {
+                case .item(let id):
+                    if let item = items.first(where: { $0.id == id }) {
+                        DetailView(item: item)
+                    }
+                case .map:
+                    MapScreen()
+                case .schedule:
+                    ScheduleScreen()
+                }
+            }
+        }
+    }
+
+    private var list: some View {
+        List {
+            if shown.isEmpty {
+                Text(query.isEmpty ? "ここにはまだありません" : "見つかりませんでした")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 60)
+                    .listRowSeparator(.hidden)
+            }
+            ForEach(shown) { item in
+                Button {
+                    searching = false
+                    path.append(.item(item.id))
+                } label: {
+                    ItemRow(item: item)
+                }
+                .buttonStyle(.plain)
+                .listRowInsets(EdgeInsets(top: 12, leading: 20, bottom: 12, trailing: 20))
+                // 右へスワイプ：ピン留め
+                .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                    Button {
+                        item.pinned.toggle()
+                        try? context.save()
+                    } label: {
+                        Label(item.pinned ? "ピンを外す" : "ピン留め", systemImage: item.pinned ? "pin.slash" : "pin")
+                    }
+                    .tint(.orange)
+                }
+                // 左へスワイプ：削除
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    Button(role: .destructive) {
+                        context.delete(item)
+                        try? context.save()
+                    } label: {
+                        Label("削除", systemImage: "trash")
+                    }
+                }
+            }
+        }
+        .listStyle(.plain)
+        .scrollDismissesKeyboard(.immediately)
+    }
+
+    /// 画面の下：分類 → ジャンル → 検索欄と3つのボタン。
+    private var bottomBar: some View {
+        VStack(spacing: 0) {
+            Divider()
+            if !categories.isEmpty {
+                ChipBar(titles: categories, selection: $category)
+            }
+            if !usedGenres.isEmpty {
+                GenreBar(genres: usedGenres, selection: $genre)
+            }
+            HStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    TextField("ことばで探す", text: $query)
+                        .focused($searching)
+                        .submitLabel(.search)
+                        .autocorrectionDisabled()
+                    if !query.isEmpty {
+                        Button {
+                            query = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                                .frame(width: 32, height: 44)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("検索語を消す")
+                    }
+                }
+                .padding(.leading, 14)
+                .padding(.trailing, 6)
+                .frame(height: 48)
+                .background(Color(.secondarySystemBackground), in: Capsule())
+
+                if !searching {
+                    iconButton("map", label: "マップ") { path.append(.map) }
+                    iconButton("calendar", label: "予定") { path.append(.schedule) }
+                    iconButton("plus", label: "URLを追加") {
+                        addText = ""
+                        showAdd = true
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, usedGenres.isEmpty ? 10 : 2)
+            .padding(.bottom, 8)
+        }
+        .background(.bar)
+        .animation(.easeOut(duration: 0.15), value: searching)
+    }
+
+    private func iconButton(_ systemImage: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 18, weight: .semibold))
+                .frame(width: 48, height: 48)
+                .background(Color(.secondarySystemBackground), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    private func runSearch() async {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else {
+            hits = nil
+            return
+        }
+        // 打っている途中は待つ。
+        try? await Task.sleep(nanoseconds: 180_000_000)
+        if Task.isCancelled { return }
+        let result = await SearchEngine.search(q, in: items)
+        if !Task.isCancelled { hits = result }
+    }
+}
+
+/// ジャンルの絞り込み。1タップで切り替わる。
+struct GenreBar: View {
+    let genres: [Genre]
+    @Binding var selection: Genre?
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                Chip(title: "すべて", color: nil, selected: selection == nil) { selection = nil }
+                ForEach(genres) { g in
+                    Chip(title: g.label, color: g.color, selected: selection == g) {
+                        selection = (selection == g) ? nil : g
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        }
+    }
+}
+
+/// 分類の絞り込み（ジャンルを選んだときだけ出る）。
+struct ChipBar: View {
+    let titles: [String]
+    @Binding var selection: String?
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(titles, id: \.self) { title in
+                    Chip(title: title, color: nil, selected: selection == title, small: true) {
+                        selection = (selection == title) ? nil : title
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 8)
+        }
+    }
+}
+
+struct Chip: View {
+    let title: String
+    let color: Color?
+    let selected: Bool
+    var small = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                if let color {
+                    Circle().fill(color).frame(width: 8, height: 8)
+                }
+                Text(title)
+                    .font((small ? Font.footnote : Font.subheadline).weight(selected ? .semibold : .regular))
+            }
+            .padding(.horizontal, small ? 12 : 14)
+            .frame(minHeight: small ? 32 : 36)
+            .foregroundStyle(selected ? Color(.systemBackground) : Color.primary)
+            .background(selected ? Color.primary : Color(.secondarySystemBackground), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// 一覧の1行。どの項目も同じ並び：題名 ／ ジャンル・分類・共有元 ／ 取り込み日（と予定）。
+struct ItemRow: View {
+    let item: Item
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Thumbnail(item: item, size: 72)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(item.displayTitle)
+                    .font(.body.weight(.semibold))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                HStack(spacing: 6) {
+                    Circle().fill(item.genre.color).frame(width: 8, height: 8)
+                    Text(item.sourceName.isEmpty ? item.genreText : item.genreText + " ・ " + item.sourceName)
+                        .lineLimit(1)
+                }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Text(item.analyzed ? DateText.saved(item.createdAt) : "解析中")
+                    if let date = item.eventDate {
+                        Label(DateText.span(date, item.eventEnd), systemImage: "calendar")
+                            .labelStyle(.titleAndIcon)
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                    }
+                }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+            if item.pinned {
+                Image(systemName: "pin.fill")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+                    .accessibilityLabel("ピン留め")
+            }
+        }
+        .contentShape(Rectangle())
+    }
+}
+
+/// サムネイル。画像がなければジャンルの色と記号。
+struct Thumbnail: View {
+    let item: Item
+    let size: CGFloat
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: size * 0.22, style: .continuous)
+                .fill(item.genre.color.opacity(0.16))
+            if let image = Thumbnails.image(for: item) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Image(systemName: item.genre.symbol)
+                    .font(.system(size: size * 0.36, weight: .medium))
+                    .foregroundStyle(item.genre.color)
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
+        .accessibilityHidden(true)
+    }
+}
+
+/// 画像の読み込みを使い回す。
+@MainActor
+enum Thumbnails {
+    private static let cache = NSCache<NSUUID, UIImage>()
+
+    static func image(for item: Item) -> UIImage? {
+        let key = item.id as NSUUID
+        if let hit = cache.object(forKey: key) { return hit }
+        guard let data = item.imageData, let image = UIImage(data: data) else { return nil }
+        let small = image.preparingThumbnail(of: CGSize(width: 240, height: 240 * image.size.height / max(image.size.width, 1))) ?? image
+        cache.setObject(small, forKey: key)
+        return small
+    }
+
+    static func forget(_ id: UUID) {
+        cache.removeObject(forKey: id as NSUUID)
+    }
+}
+
+/// 何も入っていないときの案内。
+struct EmptyGuide: View {
+    var body: some View {
+        VStack(spacing: 18) {
+            Image(systemName: "square.and.arrow.up")
+                .font(.system(size: 44, weight: .light))
+                .foregroundStyle(.secondary)
+            Text("まだ何もありません")
+                .font(.title3.weight(.semibold))
+            VStack(alignment: .leading, spacing: 10) {
+                step("1", "Safari や YouTube、Instagram などで共有ボタンを押す")
+                step("2", "一覧から「ウィルシー」を選ぶ")
+                step("3", "ここに入り、ジャンルや場所・日付が自動で付く")
+            }
+            Text("共有先に見当たらないときは、アプリの並びの右端「その他」から追加できます。")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(32)
+        .frame(maxWidth: 460)
+    }
+
+    private func step(_ number: String, _ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(number)
+                .font(.footnote.weight(.bold))
+                .frame(width: 24, height: 24)
+                .background(Color(.secondarySystemBackground), in: Circle())
+            Text(text)
+                .font(.subheadline)
+        }
+    }
+}
