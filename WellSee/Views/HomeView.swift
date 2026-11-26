@@ -99,15 +99,11 @@ struct HomeView: View {
 
     private var list: some View {
         List {
-            // いちばん上：ジャンルごとの件数。押すとそのジャンルだけになる。
-            GenreTiles(genres: usedGenres, counts: counts, selection: $genre)
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
-
             if browsing {
+                // いま見るべきものを上に：これからの予定 → ピン留め → そのほか（新しい順）
                 if !upcoming.isEmpty {
                     Section {
-                        ForEach(upcoming.prefix(3)) { item in cardRow(item, showGenre: true) }
+                        ForEach(upcoming.prefix(3)) { item in cardRow(item, showGenre: true, highlight: true) }
                         if upcoming.count > 3 {
                             moreRow("予定をすべて見る（\(upcoming.count)件）") { path.append(.schedule) }
                         }
@@ -118,25 +114,19 @@ struct HomeView: View {
                 let pinned = items.filter(\.pinned)
                 if !pinned.isEmpty {
                     Section {
-                        ForEach(pinned) { item in cardRow(item, showGenre: true) }
+                        ForEach(pinned) { item in cardRow(item, showGenre: false, highlight: false) }
                     } header: {
-                        sectionHeader("ピン留め", systemImage: "pin.fill", color: .orange)
+                        sectionHeader("ピン留め", systemImage: "pin.fill", color: .yellow)
                     }
                 }
-                ForEach(usedGenres) { g in
-                    let group = items.filter { $0.genre == g }
+                let rest = items.filter { !$0.pinned }
+                if !rest.isEmpty {
                     Section {
-                        if g == .place {
-                            // 場所は横に並べて、めくって見る。
-                            carousel(group)
-                        } else {
-                            ForEach(group.prefix(3)) { item in cardRow(item, showGenre: false) }
-                        }
-                        if group.count > 3 {
-                            moreRow("\(g.label)をすべて見る（\(group.count)件）") { genre = g }
-                        }
+                        ForEach(rest) { item in cardRow(item, showGenre: false, highlight: false) }
                     } header: {
-                        sectionHeader(g.label, systemImage: g.symbol, color: g.color)
+                        if !upcoming.isEmpty || !pinned.isEmpty {
+                            sectionHeader("すべて", systemImage: "tray.full", color: .secondary)
+                        }
                     }
                 }
             } else {
@@ -148,17 +138,11 @@ struct HomeView: View {
                         .padding(.top, 60)
                         .listRowSeparator(.hidden)
                 }
-                ForEach(shown) { item in cardRow(item, showGenre: genre == nil) }
+                ForEach(shown) { item in cardRow(item, showGenre: false, highlight: false) }
             }
         }
         .listStyle(.plain)
         .scrollDismissesKeyboard(.immediately)
-    }
-
-    private var counts: [Genre: Int] {
-        var out: [Genre: Int] = [:]
-        for item in items { out[item.genre, default: 0] += 1 }
-        return out
     }
 
     private func open(_ item: Item) {
@@ -177,11 +161,11 @@ struct HomeView: View {
     }
 
     /// カード1枚の行。右へスワイプでピン留め、左へスワイプで削除。
-    private func cardRow(_ item: Item, showGenre: Bool) -> some View {
+    private func cardRow(_ item: Item, showGenre: Bool, highlight: Bool) -> some View {
         Button {
             open(item)
         } label: {
-            ItemCard(item: item, showGenre: showGenre)
+            ItemCard(item: item, showGenre: showGenre, highlight: highlight)
         }
         .buttonStyle(.plain)
         .listRowInsets(EdgeInsets(top: 5, leading: 14, bottom: 5, trailing: 14))
@@ -201,39 +185,6 @@ struct HomeView: View {
                 Label("削除", systemImage: "trash")
             }
         }
-    }
-
-    /// 横に並べたカード。横スクロールとぶつかるので、ピン留めと削除は長押しのメニューから。
-    private func carousel(_ group: [Item]) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                ForEach(group.prefix(12)) { item in
-                    Button {
-                        open(item)
-                    } label: {
-                        ItemCard(item: item, showGenre: false)
-                            .frame(width: 300)
-                    }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        Button {
-                            togglePin(item)
-                        } label: {
-                            Label(item.pinned ? "ピンを外す" : "ピン留め", systemImage: item.pinned ? "pin.slash" : "pin")
-                        }
-                        Button(role: .destructive) {
-                            remove(item)
-                        } label: {
-                            Label("削除", systemImage: "trash")
-                        }
-                    }
-                }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 5)
-        }
-        .listRowInsets(EdgeInsets())
-        .listRowSeparator(.hidden)
     }
 
     private func sectionHeader(_ title: String, systemImage: String, color: Color) -> some View {
@@ -267,7 +218,6 @@ struct HomeView: View {
     /// 画面の下：分類 → ジャンル → 検索欄と3つのボタン。
     private var bottomBar: some View {
         VStack(spacing: 0) {
-            Divider()
             if !categories.isEmpty {
                 ChipBar(titles: categories, selection: $category)
             }
@@ -300,9 +250,10 @@ struct HomeView: View {
                 .background(Color(.secondarySystemBackground), in: Capsule())
 
                 if !searching {
-                    iconButton("map", label: "マップ") { path.append(.map) }
-                    iconButton("calendar", label: "予定") { path.append(.schedule) }
-                    iconButton("plus", label: "URLを追加") {
+                    iconButton("map", label: "マップ", tint: .green) { path.append(.map) }
+                    iconButton("calendar", label: "予定", tint: .pink) { path.append(.schedule) }
+                    // いちばんよく使う「追加」だけ、塗りつぶして目立たせる。
+                    iconButton("plus", label: "URLを追加", tint: nil) {
                         addText = ""
                         showAdd = true
                     }
@@ -310,18 +261,28 @@ struct HomeView: View {
             }
             .padding(.horizontal, 12)
             .padding(.top, usedGenres.isEmpty ? 10 : 2)
-            .padding(.bottom, 8)
+            .padding(.bottom, 10)
         }
-        .background(.bar)
+        // 一覧の上に浮かせる。一覧はこの下を流れる。
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.25), radius: 16, y: 6)
+        .padding(.horizontal, 8)
+        .padding(.bottom, 4)
         .animation(.easeOut(duration: 0.15), value: searching)
     }
 
-    private func iconButton(_ systemImage: String, label: String, action: @escaping () -> Void) -> some View {
+    /// 丸いボタン。tint があればその色でうっすら塗り、なければ白黒の塗りつぶし（主役）。
+    private func iconButton(_ systemImage: String, label: String, tint: Color?, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(tint ?? Color(.systemBackground))
                 .frame(width: 48, height: 48)
-                .background(Color(.secondarySystemBackground), in: Circle())
+                .background(tint.map { $0.opacity(0.22) } ?? Color.primary, in: Circle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
@@ -408,58 +369,12 @@ struct Chip: View {
     }
 }
 
-/// いちばん上に並ぶ、ジャンルごとのタイル（記号・名前・件数）。
-struct GenreTiles: View {
-    let genres: [Genre]
-    let counts: [Genre: Int]
-    @Binding var selection: Genre?
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                ForEach(genres) { g in
-                    let selected = selection == g
-                    Button {
-                        selection = selected ? nil : g
-                    } label: {
-                        VStack(spacing: 5) {
-                            Image(systemName: g.symbol)
-                                .font(.system(size: 20, weight: .semibold))
-                                .foregroundStyle(g.color)
-                                .frame(height: 24)
-                            Text(g.label)
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(.primary)
-                                .lineLimit(1)
-                            Text("\(counts[g] ?? 0)")
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(.secondary)
-                        }
-                        .frame(width: 78, height: 86)
-                        .background(g.color.opacity(selected ? 0.32 : 0.13),
-                                    in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .strokeBorder(g.color.opacity(selected ? 1 : 0.6), lineWidth: selected ? 2 : 1)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("\(g.label) \(counts[g] ?? 0)件")
-                    .accessibilityAddTraits(selected ? .isSelected : [])
-                }
-            }
-            .padding(.horizontal, 14)
-            .padding(.top, 10)
-            .padding(.bottom, 6)
-        }
-    }
-}
-
-/// ホームに並ぶカード。ふちの色がジャンルの色。
+/// ホームに並ぶカード。左の帯の色がジャンルの色。予定のカードだけ、ふち全体に色を付けて目立たせる。
 /// 並びはどれも同じ：題名 ／ ジャンル・分類・共有元 ／ 取り込み日（右に予定）。
 struct ItemCard: View {
     let item: Item
     var showGenre = false
+    var highlight = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -474,7 +389,7 @@ struct ItemCard: View {
                     if item.pinned {
                         Image(systemName: "pin.fill")
                             .font(.caption)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(.yellow)
                             .accessibilityLabel("ピン留め")
                     }
                     if showGenre {
@@ -510,12 +425,20 @@ struct ItemCard: View {
             }
             .frame(minHeight: 78)
         }
-        .padding(10)
+        .padding(.vertical, 10)
+        .padding(.leading, 14)
+        .padding(.trailing, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .background(Color(.secondarySystemBackground))
+        .overlay(alignment: .leading) {
+            Rectangle().fill(item.genre.color).frame(width: 4)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .strokeBorder(item.genre.color.opacity(0.55), lineWidth: 1)
+            if highlight {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .strokeBorder(item.genre.color.opacity(0.7), lineWidth: 1.5)
+            }
         }
         .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
