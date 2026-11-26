@@ -162,9 +162,11 @@ enum Analyzer {
         r.points = Clean.lines(ai?.points, limit: 3)
         r.keywords = Clean.words(ai?.keywords, limit: 10)
 
-        // 題名。SNS の投稿、長すぎる題名、投稿者名そのままの題名は、内容を表す題名に置き換える。
+        // 題名。SNS の投稿、長い商品名、投稿者名そのままの題名は、内容を表す題名に置き換える。
+        // 記事や動画の題名は、長くても元のままにする（その題名で覚えているため）。
         let aiTitle = Clean.text(ai?.title)
-        if url == nil || isSocial || r.title.isEmpty || r.title.count > 44 || r.title == r.author {
+        let longProductName = ruleGenre == .product && r.title.count > 40
+        if url == nil || isSocial || r.title.isEmpty || longProductName || r.title == r.author {
             if !aiTitle.isEmpty {
                 r.title = aiTitle
             } else if isSocial || r.title.isEmpty {
