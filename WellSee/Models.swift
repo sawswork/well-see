@@ -103,7 +103,7 @@ final class Item {
     /// どの版の解析で読んだか。古いものは読み直す。
     var analysisVersion: Int = 0
 
-    static let currentAnalysisVersion = 2
+    static let currentAnalysisVersion = 3
 
     init(urlString: String?, rawText: String?, imageData: Data?, isOwnImage: Bool, createdAt: Date = Date()) {
         self.id = UUID()

@@ -1014,7 +1014,8 @@ enum Brain {
         let session = LanguageModelSession(instructions: """
             あなたは保存された内容を整理する係です。渡された文章だけを根拠に、項目を埋めてください。\
             書かれていないことは推測しないでください。わからない項目は何も書かず空のままにしてください。\
-            公式サイトやお知らせ、ニュースのページは article とし、event はチケットや参加を伴う催しそのもののページだけにしてください。
+            公式サイトやポータル、お知らせ、ニュースのページは article とし、何の公式サイトかは category に書いてください（アニメ、映画、音楽 など）。\
+            work は本・映画・音楽などの作品1つを紹介したり販売したりするページだけ、event はチケットや参加を伴う催しそのもののページだけにしてください。
             """)
         do {
             let response = try await session.respond(to: prompt, generating: AIReading.self)

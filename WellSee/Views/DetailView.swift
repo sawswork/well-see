@@ -11,6 +11,8 @@ struct DetailView: View {
 
     @State private var confirmDelete = false
     @State private var calendarFailed = false
+    @State private var confirmCalendar = false
+    @State private var chooseMap = false
 
     var body: some View {
         ScrollView {
@@ -136,6 +138,15 @@ struct DetailView: View {
             }
             Button("キャンセル", role: .cancel) {}
         }
+        .confirmationDialog("すでに一度登録しています。もう一度登録しますか？", isPresented: $confirmCalendar, titleVisibility: .visible) {
+            Button("もう一度登録") { addToCalendar() }
+            Button("キャンセル", role: .cancel) {}
+        }
+        .confirmationDialog("どのアプリで経路を見ますか？", isPresented: $chooseMap, titleVisibility: .visible) {
+            Button("マップ") { Routes.openAppleMaps(item) }
+            Button("Googleマップ") { Routes.openGoogleMaps(item) }
+            Button("キャンセル", role: .cancel) {}
+        }
         .alert("カレンダーに登録できませんでした", isPresented: $calendarFailed) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -143,54 +154,61 @@ struct DetailView: View {
         }
     }
 
-    @ViewBuilder
     private var actions: some View {
-        let hasAny = item.url != nil || item.coordinate != nil || item.eventDate != nil
-        if hasAny {
-            VStack(spacing: 10) {
-                if let url = item.url {
-                    bigButton("元のページを開く", systemImage: "safari", prominent: true) {
-                        openURL(url)
-                    }
+        VStack(spacing: 10) {
+            if let url = item.url {
+                bigButton("元のページを開く", systemImage: "safari", prominent: true, enabled: true) {
+                    openURL(url)
                 }
-                if let coordinate = item.coordinate {
-                    bigButton("経路を見る", systemImage: "arrow.triangle.turn.up.right.diamond", prominent: item.url == nil) {
-                        let name = (item.placeName ?? item.displayTitle)
-                            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-                        if let maps = URL(string: "http://maps.apple.com/?daddr=\(coordinate.latitude),\(coordinate.longitude)&q=\(name)") {
-                            openURL(maps)
-                        }
-                    }
+            }
+            // 場所がわからないものは押せない（灰色）。
+            bigButton("経路を見る", systemImage: "arrow.triangle.turn.up.right.diamond",
+                      prominent: item.url == nil, enabled: item.coordinate != nil) {
+                if Routes.hasGoogleMaps {
+                    chooseMap = true
+                } else {
+                    Routes.openAppleMaps(item)
                 }
-                if item.eventDate != nil {
-                    bigButton(item.calendarAdded ? "カレンダーに登録済み" : "カレンダーに登録",
-                              systemImage: item.calendarAdded ? "checkmark" : "calendar.badge.plus",
-                              prominent: false) {
-                        Task {
-                            if await CalendarWriter.add(item) {
-                                item.calendarAdded = true
-                                try? context.save()
-                            } else {
-                                calendarFailed = true
-                            }
-                        }
+            }
+            if item.eventDate != nil {
+                // カレンダー側で消されたかどうかはアプリからは見えないので、何度でも登録できるようにしておく。
+                bigButton(item.calendarAdded ? "カレンダーにもう一度登録" : "カレンダーに登録",
+                          systemImage: "calendar.badge.plus", prominent: false, enabled: true) {
+                    if item.calendarAdded {
+                        confirmCalendar = true
+                    } else {
+                        addToCalendar()
                     }
-                    .disabled(item.calendarAdded)
                 }
             }
         }
     }
 
-    private func bigButton(_ title: String, systemImage: String, prominent: Bool, action: @escaping () -> Void) -> some View {
+    private func addToCalendar() {
+        Task {
+            if await CalendarWriter.add(item) {
+                item.calendarAdded = true
+                try? context.save()
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            } else {
+                calendarFailed = true
+            }
+        }
+    }
+
+    private func bigButton(_ title: String, systemImage: String, prominent: Bool, enabled: Bool,
+                           action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
                 .font(.body.weight(.semibold))
                 .frame(maxWidth: .infinity, minHeight: 50)
-                .foregroundStyle(prominent ? Color(.systemBackground) : Color.primary)
-                .background(prominent ? Color.primary : Color(.secondarySystemBackground),
+                .foregroundStyle(prominent ? Color(.systemBackground) : Color(.label))
+                .background(prominent ? Color(.label) : Color(.secondarySystemBackground),
                             in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.35)
     }
 
     private func row(_ label: String, _ value: String) -> some View {
@@ -208,5 +226,28 @@ struct DetailView: View {
         .overlay(alignment: .bottom) {
             Divider().padding(.leading, 16)
         }
+    }
+}
+
+/// 経路を地図アプリで開く。ブラウザは開かない。
+@MainActor
+enum Routes {
+    /// Googleマップのアプリが入っているか。
+    static var hasGoogleMaps: Bool {
+        guard let url = URL(string: "comgooglemaps://") else { return false }
+        return UIApplication.shared.canOpenURL(url)
+    }
+
+    static func openAppleMaps(_ item: Item) {
+        guard let coordinate = item.coordinate else { return }
+        let mapItem = MKMapItem(placemark: MKPlacemark(coordinate: coordinate))
+        mapItem.name = item.placeName ?? item.displayTitle
+        mapItem.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDefault])
+    }
+
+    static func openGoogleMaps(_ item: Item) {
+        guard let coordinate = item.coordinate,
+              let url = URL(string: "comgooglemaps://?daddr=\(coordinate.latitude),\(coordinate.longitude)") else { return }
+        UIApplication.shared.open(url)
     }
 }

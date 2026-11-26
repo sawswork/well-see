@@ -282,7 +282,7 @@ struct HomeView: View {
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(tint ?? Color(.systemBackground))
                 .frame(width: 48, height: 48)
-                .background(tint.map { $0.opacity(0.22) } ?? Color.primary, in: Circle())
+                .background(tint.map { $0.opacity(0.22) } ?? Color(.label), in: Circle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
@@ -361,8 +361,9 @@ struct Chip: View {
             }
             .padding(.horizontal, small ? 12 : 14)
             .frame(minHeight: small ? 32 : 36)
-            .foregroundStyle(selected ? Color(.systemBackground) : Color.primary)
-            .background(selected ? Color.primary : Color(.secondarySystemBackground), in: Capsule())
+            // Color.primary は半透明の板の上だと薄く溶けてしまうので、はっきりした色（label）を使う。
+            .foregroundStyle(selected ? Color(.systemBackground) : Color(.label))
+            .background(selected ? Color(.label) : Color(.secondarySystemBackground), in: Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])

@@ -104,6 +104,10 @@ final class Importer: ObservableObject {
         if let lat = reading.latitude, let lon = reading.longitude {
             item.latitude = lat
             item.longitude = lon
+        } else if !item.isOwnImage {
+            // 場所が見つからなかったら、前の解析で付いた座標は消す（写真の撮影場所は残す）。
+            item.latitude = nil
+            item.longitude = nil
         }
         item.eventDate = reading.eventStart
         item.eventEnd = reading.eventEnd

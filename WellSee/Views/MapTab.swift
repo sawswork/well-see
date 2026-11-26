@@ -6,7 +6,15 @@ import MapKit
 struct MapScreen: View {
     @Query(sort: \Item.createdAt, order: .reverse) private var items: [Item]
     @State private var selection: UUID?
-    @State private var position: MapCameraPosition = .automatic
+    /// 最初に見せる範囲。日本で使っているときは日本全体、それ以外はピンが全部入る範囲。
+    @State private var position: MapCameraPosition = MapScreen.home
+
+    private static var home: MapCameraPosition {
+        guard Locale.current.region?.identifier == "JP" else { return .automatic }
+        return .region(MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: 37.6, longitude: 137.6),
+            span: MKCoordinateSpan(latitudeDelta: 17, longitudeDelta: 19)))
+    }
     @State private var genre: Genre?
 
     private var located: [Item] {
@@ -71,7 +79,7 @@ struct MapScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: genre) { _, _ in
             selection = nil
-            position = .automatic
+            position = MapScreen.home
         }
     }
 }
