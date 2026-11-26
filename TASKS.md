@@ -5,12 +5,12 @@
 - [ ] Apple Developer で App Group と App ID 2つを登録する（手順は CLAUDE.md）
 - [ ] App Store Connect で新規アプリ「ウィルシー」を作る
 - [ ] このリポジトリに Secrets 4つを登録する
-- [ ] Actions の build を実行して、コンパイルが通るか確かめる
-- [ ] 通ったら testflight を実行する
+- [ ] Actions の testflight を実行する
 
 ## 済んだこと
 
-- 第1段階の実装（取り込み、解析、予定、マップ、検索、ジャンル絞り込み）。コンパイルは未確認。
+- 第1段階の実装（取り込み、解析、予定、マップ、検索、ジャンル絞り込み）。
+- Actions の build でコンパイルが通ることを確認（2026-11-26）。実機での動作は未確認。
 
 ## 確かめたいこと（TestFlight で）
 
