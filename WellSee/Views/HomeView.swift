@@ -84,48 +84,184 @@ struct HomeView: View {
         }
     }
 
+    /// 絞り込みも検索もしていないとき。
+    private var browsing: Bool {
+        genre == nil && category == nil && hits == nil
+    }
+
+    /// これからの予定（近い順）。
+    private var upcoming: [Item] {
+        let floor = Calendar.current.startOfDay(for: Date())
+        return items
+            .filter { ($0.eventLast ?? .distantPast) >= floor && $0.eventDate != nil }
+            .sorted { ($0.eventDate ?? .distantPast) < ($1.eventDate ?? .distantPast) }
+    }
+
     private var list: some View {
         List {
-            if shown.isEmpty {
-                Text(query.isEmpty ? "ここにはまだありません" : "見つかりませんでした")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 60)
-                    .listRowSeparator(.hidden)
-            }
-            ForEach(shown) { item in
-                Button {
-                    searching = false
-                    path.append(.item(item.id))
-                } label: {
-                    ItemRow(item: item)
-                }
-                .buttonStyle(.plain)
-                .listRowInsets(EdgeInsets(top: 12, leading: 20, bottom: 12, trailing: 20))
-                // 右へスワイプ：ピン留め
-                .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                    Button {
-                        item.pinned.toggle()
-                        try? context.save()
-                    } label: {
-                        Label(item.pinned ? "ピンを外す" : "ピン留め", systemImage: item.pinned ? "pin.slash" : "pin")
-                    }
-                    .tint(.orange)
-                }
-                // 左へスワイプ：削除
-                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                    Button(role: .destructive) {
-                        context.delete(item)
-                        try? context.save()
-                    } label: {
-                        Label("削除", systemImage: "trash")
+            // いちばん上：ジャンルごとの件数。押すとそのジャンルだけになる。
+            GenreTiles(genres: usedGenres, counts: counts, selection: $genre)
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+
+            if browsing {
+                if !upcoming.isEmpty {
+                    Section {
+                        ForEach(upcoming.prefix(3)) { item in cardRow(item, showGenre: true) }
+                        if upcoming.count > 3 {
+                            moreRow("予定をすべて見る（\(upcoming.count)件）") { path.append(.schedule) }
+                        }
+                    } header: {
+                        sectionHeader("これからの予定", systemImage: "calendar", color: .pink)
                     }
                 }
+                let pinned = items.filter(\.pinned)
+                if !pinned.isEmpty {
+                    Section {
+                        ForEach(pinned) { item in cardRow(item, showGenre: true) }
+                    } header: {
+                        sectionHeader("ピン留め", systemImage: "pin.fill", color: .orange)
+                    }
+                }
+                ForEach(usedGenres) { g in
+                    let group = items.filter { $0.genre == g }
+                    Section {
+                        if g == .place {
+                            // 場所は横に並べて、めくって見る。
+                            carousel(group)
+                        } else {
+                            ForEach(group.prefix(3)) { item in cardRow(item, showGenre: false) }
+                        }
+                        if group.count > 3 {
+                            moreRow("\(g.label)をすべて見る（\(group.count)件）") { genre = g }
+                        }
+                    } header: {
+                        sectionHeader(g.label, systemImage: g.symbol, color: g.color)
+                    }
+                }
+            } else {
+                if shown.isEmpty {
+                    Text(query.isEmpty ? "ここにはまだありません" : "見つかりませんでした")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 60)
+                        .listRowSeparator(.hidden)
+                }
+                ForEach(shown) { item in cardRow(item, showGenre: genre == nil) }
             }
         }
         .listStyle(.plain)
         .scrollDismissesKeyboard(.immediately)
+    }
+
+    private var counts: [Genre: Int] {
+        var out: [Genre: Int] = [:]
+        for item in items { out[item.genre, default: 0] += 1 }
+        return out
+    }
+
+    private func open(_ item: Item) {
+        searching = false
+        path.append(.item(item.id))
+    }
+
+    private func togglePin(_ item: Item) {
+        item.pinned.toggle()
+        try? context.save()
+    }
+
+    private func remove(_ item: Item) {
+        context.delete(item)
+        try? context.save()
+    }
+
+    /// カード1枚の行。右へスワイプでピン留め、左へスワイプで削除。
+    private func cardRow(_ item: Item, showGenre: Bool) -> some View {
+        Button {
+            open(item)
+        } label: {
+            ItemCard(item: item, showGenre: showGenre)
+        }
+        .buttonStyle(.plain)
+        .listRowInsets(EdgeInsets(top: 5, leading: 14, bottom: 5, trailing: 14))
+        .listRowSeparator(.hidden)
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            Button {
+                togglePin(item)
+            } label: {
+                Label(item.pinned ? "ピンを外す" : "ピン留め", systemImage: item.pinned ? "pin.slash" : "pin")
+            }
+            .tint(.orange)
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            Button(role: .destructive) {
+                remove(item)
+            } label: {
+                Label("削除", systemImage: "trash")
+            }
+        }
+    }
+
+    /// 横に並べたカード。横スクロールとぶつかるので、ピン留めと削除は長押しのメニューから。
+    private func carousel(_ group: [Item]) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(group.prefix(12)) { item in
+                    Button {
+                        open(item)
+                    } label: {
+                        ItemCard(item: item, showGenre: false)
+                            .frame(width: 300)
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        Button {
+                            togglePin(item)
+                        } label: {
+                            Label(item.pinned ? "ピンを外す" : "ピン留め", systemImage: item.pinned ? "pin.slash" : "pin")
+                        }
+                        Button(role: .destructive) {
+                            remove(item)
+                        } label: {
+                            Label("削除", systemImage: "trash")
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 5)
+        }
+        .listRowInsets(EdgeInsets())
+        .listRowSeparator(.hidden)
+    }
+
+    private func sectionHeader(_ title: String, systemImage: String, color: Color) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .foregroundStyle(color)
+            Text(title)
+                .foregroundStyle(.primary)
+        }
+        .font(.title3.weight(.bold))
+        .textCase(nil)
+        .padding(.top, 6)
+        .accessibilityAddTraits(.isHeader)
+    }
+
+    private func moreRow(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Text(title)
+                Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, minHeight: 40, alignment: .trailing)
+        }
+        .buttonStyle(.plain)
+        .listRowInsets(EdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 18))
+        .listRowSeparator(.hidden)
     }
 
     /// 画面の下：分類 → ジャンル → 検索欄と3つのボタン。
@@ -269,6 +405,119 @@ struct Chip: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// いちばん上に並ぶ、ジャンルごとのタイル（記号・名前・件数）。
+struct GenreTiles: View {
+    let genres: [Genre]
+    let counts: [Genre: Int]
+    @Binding var selection: Genre?
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(genres) { g in
+                    let selected = selection == g
+                    Button {
+                        selection = selected ? nil : g
+                    } label: {
+                        VStack(spacing: 5) {
+                            Image(systemName: g.symbol)
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundStyle(g.color)
+                                .frame(height: 24)
+                            Text(g.label)
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                            Text("\(counts[g] ?? 0)")
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(width: 78, height: 86)
+                        .background(g.color.opacity(selected ? 0.32 : 0.13),
+                                    in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .strokeBorder(g.color.opacity(selected ? 1 : 0.6), lineWidth: selected ? 2 : 1)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(g.label) \(counts[g] ?? 0)件")
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
+            .padding(.bottom, 6)
+        }
+    }
+}
+
+/// ホームに並ぶカード。ふちの色がジャンルの色。
+/// 並びはどれも同じ：題名 ／ ジャンル・分類・共有元 ／ 取り込み日（右に予定）。
+struct ItemCard: View {
+    let item: Item
+    var showGenre = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Thumbnail(item: item, size: 78)
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(alignment: .top, spacing: 6) {
+                    Text(item.displayTitle)
+                        .font(.body.weight(.semibold))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    Spacer(minLength: 0)
+                    if item.pinned {
+                        Image(systemName: "pin.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .accessibilityLabel("ピン留め")
+                    }
+                    if showGenre {
+                        Text(item.genre.label)
+                            .font(.caption2.weight(.bold))
+                            .padding(.horizontal, 8)
+                            .frame(height: 22)
+                            .background(item.genre.color.opacity(0.28), in: Capsule())
+                    }
+                }
+                HStack(spacing: 6) {
+                    Circle().fill(item.genre.color).frame(width: 8, height: 8)
+                    Text(item.sourceName.isEmpty ? item.genreText : item.genreText + " ・ " + item.sourceName)
+                        .lineLimit(1)
+                }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                HStack(spacing: 8) {
+                    Text(item.analyzed ? DateText.saved(item.createdAt) : "解析中")
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                    if let date = item.eventDate {
+                        Label(DateText.span(date, item.eventEnd), systemImage: "calendar")
+                            .labelStyle(.titleAndIcon)
+                            .lineLimit(1)
+                            .padding(.horizontal, 8)
+                            .frame(height: 24)
+                            .background(Color(.tertiarySystemBackground), in: Capsule())
+                    }
+                }
+                .font(.footnote)
+            }
+            .frame(minHeight: 78)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(item.genre.color.opacity(0.55), lineWidth: 1)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 }
 
