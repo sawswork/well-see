@@ -1,0 +1,57 @@
+# XcodeGen の設定。ここから WellSee.xcodeproj を生成する（xcodeproj はリポジトリに入れない）。
+name: WellSee
+options:
+  deploymentTarget:
+    iOS: "26.0"
+  developmentLanguage: ja
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1"
+    # ビルド番号。TestFlight 用のビルドでは Actions が実行ごとに上書きする。
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  WellSee:
+    type: application
+    platform: iOS
+    sources:
+      - path: WellSee
+      - path: Shared
+    dependencies:
+      - target: WellSeeShare
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sawswork.wellsee
+        PRODUCT_NAME: WellSee
+        INFOPLIST_FILE: WellSee/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: WellSee/WellSee.entitlements
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        CODE_SIGN_STYLE: Automatic
+  # 共有シートに出る「ウィルシー」。受け取ったものを共有フォルダに置くだけ。
+  WellSeeShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: WellSeeShare
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sawswork.wellsee.share
+        PRODUCT_NAME: WellSeeShare
+        INFOPLIST_FILE: WellSeeShare/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: WellSeeShare/WellSeeShare.entitlements
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+        SKIP_INSTALL: YES
+schemes:
+  WellSee:
+    build:
+      targets:
+        WellSee: all
+    archive:
+      config: Release
