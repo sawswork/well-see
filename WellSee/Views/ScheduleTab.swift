@@ -56,6 +56,15 @@ struct ScheduleScreen: View {
         }
         .navigationTitle("予定")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            HStack {
+                BackButton()
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.bottom, 6)
+        }
     }
 
     @ViewBuilder

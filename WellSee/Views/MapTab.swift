@@ -73,10 +73,17 @@ struct MapScreen: View {
                     }
                     .buttonStyle(.plain)
                 }
-                if usedGenres.count > 1 {
-                    GenreBar(genres: usedGenres, selection: $genre)
-                        .background(.bar)
+                // 戻るボタンは左下。ジャンルがあればその右に並べる。
+                HStack(spacing: 0) {
+                    BackButton()
+                        .padding(.leading, 12)
+                    if usedGenres.count > 1 {
+                        GenreBar(genres: usedGenres, selection: $genre)
+                    } else {
+                        Spacer(minLength: 0)
+                    }
                 }
+                .padding(.bottom, 6)
             }
         }
         .overlay {
@@ -89,6 +96,7 @@ struct MapScreen: View {
         }
         .navigationTitle("マップ")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
         .onChange(of: genre) { _, _ in
             selection = nil
         }

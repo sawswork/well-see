@@ -572,3 +572,36 @@ struct EmptyGuide: View {
         }
     }
 }
+
+/// 画面の下に置く「戻る」。親指の届くところに置くため、上の戻るボタンの代わりに使う。
+struct BackButton: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        Button {
+            dismiss()
+        } label: {
+            Image(systemName: "chevron.left")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(Color(.label))
+                .frame(width: 48, height: 48)
+                .background(.regularMaterial, in: Circle())
+                .overlay { Circle().strokeBorder(Color.primary.opacity(0.08), lineWidth: 1) }
+                .shadow(color: .black.opacity(0.2), radius: 10, y: 4)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("戻る")
+    }
+}
+
+/// 上の戻るボタンを隠しても、画面の左端からのスワイプで戻れるようにする。
+extension UINavigationController: UIGestureRecognizerDelegate {
+    override open func viewDidLoad() {
+        super.viewDidLoad()
+        interactivePopGestureRecognizer?.delegate = self
+    }
+
+    public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        viewControllers.count > 1
+    }
+}

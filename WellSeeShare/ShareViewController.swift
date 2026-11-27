@@ -4,12 +4,16 @@ import UniformTypeIdentifiers
 
 /// 共有シートで「ウィルシー」を選んだときに動く画面。
 /// 受け取ったもの（URL・文字・画像）を置き場に書き、「保存しました」と出してすぐ閉じる。
-/// 入力は何も求めない。
+/// 入力は何も求めない。出ているあいだに「ほかの人に送る」を押すと、同じものをそのまま人に送れる。
 final class ShareViewController: UIViewController {
     private let card = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
     private let icon = UIImageView()
     private let label = UILabel()
+    private let shareButton = UIButton(type: .system)
     private var started = false
+    /// ほかの人に送るもの（保存したものと同じ）。
+    private var shareItems: [Any] = []
+    private var closing: Task<Void, Never>?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -31,9 +35,21 @@ final class ShareViewController: UIViewController {
         label.textColor = .label
         label.translatesAutoresizingMaskIntoConstraints = false
 
-        let stack = UIStackView(arrangedSubviews: [icon, label])
+        var config = UIButton.Configuration.tinted()
+        config.image = UIImage(systemName: "square.and.arrow.up")
+        config.title = "ほかの人に送る"
+        config.imagePadding = 6
+        config.cornerStyle = .capsule
+        config.buttonSize = .medium
+        shareButton.configuration = config
+        shareButton.tintColor = .label
+        shareButton.isHidden = true
+        shareButton.addTarget(self, action: #selector(shareTapped), for: .touchUpInside)
+
+        let stack = UIStackView(arrangedSubviews: [icon, label, shareButton])
         stack.axis = .horizontal
         stack.spacing = 10
+        stack.setCustomSpacing(16, after: label)
         stack.alignment = .center
         stack.translatesAutoresizingMaskIntoConstraints = false
         card.contentView.addSubview(stack)
@@ -41,11 +57,11 @@ final class ShareViewController: UIViewController {
         NSLayoutConstraint.activate([
             card.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             card.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -24),
-            card.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 24),
+            card.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 16),
             stack.topAnchor.constraint(equalTo: card.contentView.topAnchor, constant: 16),
             stack.bottomAnchor.constraint(equalTo: card.contentView.bottomAnchor, constant: -16),
-            stack.leadingAnchor.constraint(equalTo: card.contentView.leadingAnchor, constant: 22),
-            stack.trailingAnchor.constraint(equalTo: card.contentView.trailingAnchor, constant: -22),
+            stack.leadingAnchor.constraint(equalTo: card.contentView.leadingAnchor, constant: 18),
+            stack.trailingAnchor.constraint(equalTo: card.contentView.trailingAnchor, constant: -14),
             icon.widthAnchor.constraint(equalToConstant: 24),
             icon.heightAnchor.constraint(equalToConstant: 24),
         ])
@@ -101,6 +117,13 @@ final class ShareViewController: UIViewController {
         let entry = InboxItem(id: UUID(), date: Date(), url: url, text: text, imageFile: nil,
                               latitude: gps?.latitude, longitude: gps?.longitude)
         let ok = Inbox.write(entry, imageData: image)
+        if let url, let link = URL(string: url) {
+            shareItems = [link]
+        } else if let image, let picture = UIImage(data: image) {
+            shareItems = [picture]
+        } else if let text {
+            shareItems = [text]
+        }
         await finish(success: ok)
     }
 
@@ -136,11 +159,33 @@ final class ShareViewController: UIViewController {
     private func finish(success: Bool) async {
         icon.image = UIImage(systemName: success ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
         label.text = success ? "保存しました" : "保存できませんでした"
+        shareButton.isHidden = !success || shareItems.isEmpty
         if success {
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         }
         UIView.animate(withDuration: 0.18) { self.card.alpha = 1 }
-        try? await Task.sleep(nanoseconds: success ? 900_000_000 : 1_600_000_000)
+        // ボタンを押せるだけの間をあけてから閉じる。押されたら閉じるのをやめる。
+        let wait: UInt64 = !success ? 1_600_000_000 : (shareButton.isHidden ? 900_000_000 : 2_200_000_000)
+        closing = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: wait)
+            if Task.isCancelled { return }
+            self?.close(success: success)
+        }
+    }
+
+    /// 保存したものを、そのままほかの人に送る（iOS の共有シートを開く）。
+    @objc private func shareTapped() {
+        closing?.cancel()
+        let sheet = UIActivityViewController(activityItems: shareItems, applicationActivities: nil)
+        sheet.popoverPresentationController?.sourceView = shareButton
+        sheet.popoverPresentationController?.sourceRect = shareButton.bounds
+        sheet.completionWithItemsHandler = { [weak self] _, _, _, _ in
+            self?.close(success: true)
+        }
+        present(sheet, animated: true)
+    }
+
+    private func close(success: Bool) {
         UIView.animate(withDuration: 0.15, animations: { self.card.alpha = 0 }) { _ in
             if success {
                 self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
