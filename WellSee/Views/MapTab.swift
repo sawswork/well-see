@@ -6,10 +6,11 @@ import MapKit
 struct MapScreen: View {
     @Query(sort: \Item.createdAt, order: .reverse) private var items: [Item]
     @State private var selection: UUID?
-    /// 最初に見せる範囲。日本で使っているときは日本全体、それ以外はピンが全部入る範囲。
-    @State private var position: MapCameraPosition = MapScreen.home
+    /// 最初は現在地のまわり。位置情報が使えないときは日本全体（海外で使っているときはピンが全部入る範囲）。
+    @State private var position: MapCameraPosition = .userLocation(fallback: MapScreen.wide)
+    @State private var locationManager = CLLocationManager()
 
-    private static var home: MapCameraPosition {
+    private static var wide: MapCameraPosition {
         guard Locale.current.region?.identifier == "JP" else { return .automatic }
         return .region(MKCoordinateRegion(
             center: CLLocationCoordinate2D(latitude: 37.6, longitude: 137.6),
@@ -42,6 +43,17 @@ struct MapScreen: View {
                        coordinate: item.coordinate ?? CLLocationCoordinate2D())
                     .tint(item.genre.color)
                     .tag(item.id)
+            }
+            UserAnnotation()
+        }
+        .mapControls {
+            MapUserLocationButton()
+            MapCompass()
+        }
+        .onAppear {
+            // 初めて開いたときだけ、位置情報を使ってよいか尋ねる。
+            if locationManager.authorizationStatus == .notDetermined {
+                locationManager.requestWhenInUseAuthorization()
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -79,7 +91,6 @@ struct MapScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: genre) { _, _ in
             selection = nil
-            position = MapScreen.home
         }
     }
 }

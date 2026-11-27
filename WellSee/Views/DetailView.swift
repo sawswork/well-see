@@ -7,12 +7,15 @@ struct DetailView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    @EnvironmentObject private var importer: Importer
     @Bindable var item: Item
 
     @State private var confirmDelete = false
     @State private var calendarFailed = false
     @State private var confirmCalendar = false
     @State private var chooseMap = false
+    @State private var memoChanged = false
+    @FocusState private var writingMemo: Bool
 
     var body: some View {
         ScrollView {
@@ -70,6 +73,8 @@ struct DetailView: View {
                     }
                 }
 
+                memoField
+
                 actions
 
                 // 情報の並びは、どの項目でも同じ：共有元 → 日付 → 場所 → その内容ならではの項目 → 取り込み日
@@ -113,7 +118,13 @@ struct DetailView: View {
             .frame(maxWidth: .infinity)
         }
         .navigationBarTitleDisplayMode(.inline)
+        .scrollDismissesKeyboard(.interactively)
+        .onDisappear { commitMemo() }
         .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("完了") { writingMemo = false }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     if let url = item.url {
@@ -152,6 +163,31 @@ struct DetailView: View {
         } message: {
             Text("設定アプリでカレンダーへの追加を許可してください。")
         }
+    }
+
+    /// メモ。書いたそばから保存され、検索の対象になる。
+    private var memoField: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: "square.and.pencil")
+                .foregroundStyle(.secondary)
+            TextField("メモを書く（例：誕生日に行きたい）", text: $item.memo, axis: .vertical)
+                .lineLimit(1...8)
+                .focused($writingMemo)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 13)
+        .frame(minHeight: 48)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .onChange(of: item.memo) { _, _ in memoChanged = true }
+        .onChange(of: writingMemo) { _, focused in
+            if !focused { commitMemo() }
+        }
+    }
+
+    private func commitMemo() {
+        guard memoChanged else { return }
+        memoChanged = false
+        importer.contentChanged(item, context: context)
     }
 
     private var actions: some View {

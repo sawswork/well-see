@@ -45,6 +45,19 @@ final class Importer: ObservableObject {
         run(context)
     }
 
+    /// メモなどを書き換えたあとに呼ぶ。保存して、検索用のベクトルを作り直す。
+    func contentChanged(_ item: Item, context: ModelContext) {
+        try? context.save()
+        SearchEngine.forget(item.id)
+        Task {
+            if let vector = await Embedder.shared.vector(for: item.embeddingText) {
+                item.embedding = VectorCodec.data(vector)
+                SearchEngine.forget(item.id)
+                try? context.save()
+            }
+        }
+    }
+
     private func add(url: String?, text: String?, image: Data?, latitude: Double?, longitude: Double?,
                      date: Date, context: ModelContext) {
         // 同じ URL は二重に登録せず、いちばん上に戻すだけ。

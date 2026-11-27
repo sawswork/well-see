@@ -28,6 +28,8 @@
 	<true/>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>マップを開いたときに、いまいる場所のまわりを表示するために使います。位置は端末の外に送りません。</string>
 	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
 	<string>取り込んだイベントの日付をカレンダーに登録するために使います。</string>
 	<key>UILaunchScreen</key>

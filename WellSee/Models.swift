@@ -100,6 +100,8 @@ final class Item {
     var detailsData: Data? = nil
     /// 期間の最後の日。
     var eventEnd: Date? = nil
+    /// 自分で書いたメモ。検索でいちばん効く。読み直しても消えない。
+    var memo: String = ""
     /// どの版の解析で読んだか。古いものは読み直す。
     var analysisVersion: Int = 0
 
@@ -165,7 +167,7 @@ final class Item {
 
     /// ベクトルにする文章。ページ全体ではなく、中身を表す言葉だけを使う。
     var embeddingText: String {
-        [title, category, keywords, summary, placeName ?? "", genre.label]
+        [title, memo, category, keywords, summary, placeName ?? "", genre.label]
             .filter { !$0.isEmpty }
             .joined(separator: "\n")
     }

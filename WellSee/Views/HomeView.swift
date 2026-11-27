@@ -408,6 +408,12 @@ struct ItemCard: View {
                 }
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+                if !item.memo.isEmpty {
+                    Label(item.memo, systemImage: "square.and.pencil")
+                        .labelStyle(.titleAndIcon)
+                        .font(.footnote)
+                        .lineLimit(1)
+                }
                 Spacer(minLength: 0)
                 HStack(spacing: 8) {
                     Text(item.analyzed ? DateText.saved(item.createdAt) : "解析中")

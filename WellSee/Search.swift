@@ -87,7 +87,7 @@ enum SearchEngine {
         for item in items {
             // 欄ごとの重み。上にあるほど「その内容そのもの」を表す。
             var fields: [(String, Double)] = [
-                (item.title, 1.0), (item.category, 0.9), (item.keywords, 0.9), (item.genre.label, 0.8),
+                (item.title, 1.0), (item.memo, 1.0), (item.category, 0.9), (item.keywords, 0.9), (item.genre.label, 0.8),
                 (item.placeName ?? "", 0.8), (item.author, 0.7), (item.sourceName, 0.7),
                 (item.summary, 0.6), (item.points, 0.6), (item.address ?? "", 0.5), (item.rawText ?? "", 0.5),
             ]
