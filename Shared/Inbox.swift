@@ -27,6 +27,8 @@ struct InboxItem: Codable {
     var imageFile: String?
     var latitude: Double?
     var longitude: Double?
+    /// 共有の画面で書いたメモ。
+    var memo: String?
 }
 
 enum Inbox {
@@ -45,6 +47,18 @@ enum Inbox {
             return true
         } catch {
             return false
+        }
+    }
+
+    /// 置いたあとでメモを書き足す。
+    static func setMemo(_ memo: String, for id: UUID) {
+        guard let dir = SharedStore.inboxDirectory else { return }
+        let file = dir.appendingPathComponent(id.uuidString + ".json")
+        guard let data = try? Data(contentsOf: file),
+              var item = try? JSONDecoder().decode(InboxItem.self, from: data) else { return }
+        item.memo = memo
+        if let out = try? JSONEncoder().encode(item) {
+            try? out.write(to: file, options: .atomic)
         }
     }
 

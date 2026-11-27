@@ -3,14 +3,21 @@ import ImageIO
 import UniformTypeIdentifiers
 
 /// 共有シートで「ウィルシー」を選んだときに動く画面。
-/// 受け取ったもの（URL・文字・画像）を置き場に書き、「保存しました」と出してすぐ閉じる。
-/// 入力は何も求めない。出ているあいだに「ほかの人に送る」を押すと、同じものをそのまま人に送れる。
-final class ShareViewController: UIViewController {
+/// 受け取ったもの（URL・文字・画像）を置き場に書き、「保存しました」と出す。
+/// 何もしなければ数秒で閉じる。カードに触れると閉じるのを待ち、メモを書いたり、
+/// 同じものをほかの人に送ったりできる。カードの外を押すか「完了」で閉じる。
+final class ShareViewController: UIViewController, UITextFieldDelegate {
     private let card = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
     private let icon = UIImageView()
     private let label = UILabel()
+    private let memoField = UITextField()
     private let shareButton = UIButton(type: .system)
+    private let doneButton = UIButton(type: .system)
+    private let extras = UIStackView()
     private var started = false
+    private var savedID: UUID?
+    private var succeeded = false
+    private var closed = false
     /// ほかの人に送るもの（保存したものと同じ）。
     private var shareItems: [Any] = []
     private var closing: Task<Void, Never>?
@@ -19,51 +26,102 @@ final class ShareViewController: UIViewController {
         super.viewDidLoad()
         view.backgroundColor = .clear
 
-        card.layer.cornerRadius = 22
+        // カードの外を押したら閉じる。
+        let outside = UITapGestureRecognizer(target: self, action: #selector(outsideTapped(_:)))
+        outside.cancelsTouchesInView = false
+        view.addGestureRecognizer(outside)
+
+        card.layer.cornerRadius = 24
         card.layer.cornerCurve = .continuous
         card.clipsToBounds = true
         card.translatesAutoresizingMaskIntoConstraints = false
         card.alpha = 0
         view.addSubview(card)
 
+        // カードに触れたら、自動で閉じるのをやめる。
+        let hold = UITapGestureRecognizer(target: self, action: #selector(cardTouched))
+        hold.cancelsTouchesInView = false
+        card.contentView.addGestureRecognizer(hold)
+
         icon.contentMode = .scaleAspectFit
         icon.tintColor = .label
-        icon.translatesAutoresizingMaskIntoConstraints = false
 
         label.font = .preferredFont(forTextStyle: .headline)
         label.adjustsFontForContentSizeCategory = true
         label.textColor = .label
-        label.translatesAutoresizingMaskIntoConstraints = false
 
-        var config = UIButton.Configuration.tinted()
-        config.image = UIImage(systemName: "square.and.arrow.up")
-        config.title = "ほかの人に送る"
-        config.imagePadding = 6
-        config.cornerStyle = .capsule
-        config.buttonSize = .medium
-        shareButton.configuration = config
+        let status = UIStackView(arrangedSubviews: [icon, label])
+        status.axis = .horizontal
+        status.spacing = 10
+        status.alignment = .center
+
+        memoField.placeholder = "メモを書く（あとからでも書けます）"
+        memoField.font = .preferredFont(forTextStyle: .body)
+        memoField.adjustsFontForContentSizeCategory = true
+        memoField.borderStyle = .none
+        memoField.backgroundColor = .tertiarySystemFill
+        memoField.layer.cornerRadius = 12
+        memoField.layer.cornerCurve = .continuous
+        memoField.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 12, height: 1))
+        memoField.leftViewMode = .always
+        memoField.rightView = UIView(frame: CGRect(x: 0, y: 0, width: 12, height: 1))
+        memoField.rightViewMode = .always
+        memoField.returnKeyType = .done
+        memoField.delegate = self
+
+        var share = UIButton.Configuration.tinted()
+        share.image = UIImage(systemName: "square.and.arrow.up")
+        share.title = "ほかの人に送る"
+        share.imagePadding = 6
+        share.cornerStyle = .capsule
+        share.buttonSize = .large
+        shareButton.configuration = share
         shareButton.tintColor = .label
-        shareButton.isHidden = true
         shareButton.addTarget(self, action: #selector(shareTapped), for: .touchUpInside)
 
-        let stack = UIStackView(arrangedSubviews: [icon, label, shareButton])
-        stack.axis = .horizontal
-        stack.spacing = 10
-        stack.setCustomSpacing(16, after: label)
-        stack.alignment = .center
+        var done = UIButton.Configuration.filled()
+        done.title = "完了"
+        done.cornerStyle = .capsule
+        done.buttonSize = .large
+        done.baseBackgroundColor = .label
+        done.baseForegroundColor = .systemBackground
+        doneButton.configuration = done
+        doneButton.addTarget(self, action: #selector(doneTapped), for: .touchUpInside)
+
+        let buttons = UIStackView(arrangedSubviews: [shareButton, doneButton])
+        buttons.axis = .horizontal
+        buttons.spacing = 10
+        buttons.distribution = .fillEqually
+
+        extras.axis = .vertical
+        extras.spacing = 12
+        extras.addArrangedSubview(memoField)
+        extras.addArrangedSubview(buttons)
+        extras.isHidden = true
+
+        let stack = UIStackView(arrangedSubviews: [status, extras])
+        stack.axis = .vertical
+        stack.spacing = 14
+        stack.alignment = .fill
         stack.translatesAutoresizingMaskIntoConstraints = false
         card.contentView.addSubview(stack)
 
+        let width = card.widthAnchor.constraint(equalToConstant: 420)
+        width.priority = .defaultHigh
         NSLayoutConstraint.activate([
             card.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            card.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -24),
-            card.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 16),
-            stack.topAnchor.constraint(equalTo: card.contentView.topAnchor, constant: 16),
+            // キーボードが出たら、その上に乗る。
+            card.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -16),
+            card.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 12),
+            card.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -12),
+            width,
+            stack.topAnchor.constraint(equalTo: card.contentView.topAnchor, constant: 18),
             stack.bottomAnchor.constraint(equalTo: card.contentView.bottomAnchor, constant: -16),
-            stack.leadingAnchor.constraint(equalTo: card.contentView.leadingAnchor, constant: 18),
-            stack.trailingAnchor.constraint(equalTo: card.contentView.trailingAnchor, constant: -14),
+            stack.leadingAnchor.constraint(equalTo: card.contentView.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: card.contentView.trailingAnchor, constant: -16),
             icon.widthAnchor.constraint(equalToConstant: 24),
             icon.heightAnchor.constraint(equalToConstant: 24),
+            memoField.heightAnchor.constraint(greaterThanOrEqualToConstant: 46),
         ])
     }
 
@@ -117,6 +175,7 @@ final class ShareViewController: UIViewController {
         let entry = InboxItem(id: UUID(), date: Date(), url: url, text: text, imageFile: nil,
                               latitude: gps?.latitude, longitude: gps?.longitude)
         let ok = Inbox.write(entry, imageData: image)
+        if ok { savedID = entry.id }
         if let url, let link = URL(string: url) {
             shareItems = [link]
         } else if let image, let picture = UIImage(data: image) {
@@ -157,35 +216,96 @@ final class ShareViewController: UIViewController {
     }
 
     private func finish(success: Bool) async {
+        succeeded = success
         icon.image = UIImage(systemName: success ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
         label.text = success ? "保存しました" : "保存できませんでした"
-        shareButton.isHidden = !success || shareItems.isEmpty
+        extras.isHidden = !success
+        shareButton.isHidden = shareItems.isEmpty
         if success {
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         }
         UIView.animate(withDuration: 0.18) { self.card.alpha = 1 }
-        // ボタンを押せるだけの間をあけてから閉じる。押されたら閉じるのをやめる。
-        let wait: UInt64 = !success ? 1_600_000_000 : (shareButton.isHidden ? 900_000_000 : 2_200_000_000)
+        // 何もしなければ自動で閉じる。カードに触れたら待つ。
+        let wait: UInt64 = success ? 3_000_000_000 : 1_600_000_000
         closing = Task { [weak self] in
             try? await Task.sleep(nanoseconds: wait)
             if Task.isCancelled { return }
-            self?.close(success: success)
+            self?.close()
         }
+    }
+
+    @objc private func cardTouched() {
+        closing?.cancel()
+    }
+
+    @objc private func outsideTapped(_ gesture: UITapGestureRecognizer) {
+        guard !card.frame.contains(gesture.location(in: view)) else { return }
+        close()
+    }
+
+    @objc private func doneTapped() {
+        close()
+    }
+
+    func textFieldDidBeginEditing(_ textField: UITextField) {
+        closing?.cancel()
+    }
+
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        close()
+        return true
     }
 
     /// 保存したものを、そのままほかの人に送る（iOS の共有シートを開く）。
     @objc private func shareTapped() {
         closing?.cancel()
+        storeMemo()
+        memoField.resignFirstResponder()
         let sheet = UIActivityViewController(activityItems: shareItems, applicationActivities: nil)
         sheet.popoverPresentationController?.sourceView = shareButton
         sheet.popoverPresentationController?.sourceRect = shareButton.bounds
-        sheet.completionWithItemsHandler = { [weak self] _, _, _, _ in
-            self?.close(success: true)
+        sheet.completionWithItemsHandler = { [weak self] _, completed, _, _ in
+            if completed { self?.close() }
         }
-        present(sheet, animated: true)
+        // キーボードが下がりきってから開く。
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            guard let self else { return }
+            self.present(sheet, animated: true)
+            // 共有シートを開けない場面では、リンクをコピーして知らせる。
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                guard let self, self.presentedViewController == nil || sheet.viewIfLoaded?.window == nil else { return }
+                self.copyInstead()
+            }
+        }
     }
 
-    private func close(success: Bool) {
+    private func copyInstead() {
+        if let link = shareItems.first as? URL {
+            UIPasteboard.general.url = link
+        } else if let picture = shareItems.first as? UIImage {
+            UIPasteboard.general.image = picture
+        } else if let text = shareItems.first as? String {
+            UIPasteboard.general.string = text
+        }
+        label.text = "コピーしました。送りたいアプリに貼り付けてください"
+        label.numberOfLines = 0
+        label.font = .preferredFont(forTextStyle: .subheadline)
+    }
+
+    private func storeMemo() {
+        let memo = (memoField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if let savedID, !memo.isEmpty {
+            Inbox.setMemo(memo, for: savedID)
+        }
+    }
+
+    private func close() {
+        guard !closed else { return }
+        closed = true
+        closing?.cancel()
+        storeMemo()
+        memoField.resignFirstResponder()
+        let success = succeeded
         UIView.animate(withDuration: 0.15, animations: { self.card.alpha = 0 }) { _ in
             if success {
                 self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)

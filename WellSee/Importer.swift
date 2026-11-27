@@ -8,7 +8,10 @@ final class Importer: ObservableObject {
     /// 解析待ちの件数（画面の「解析中」表示用）。
     @Published private(set) var pending = 0
 
+    /// 新しく取り込んだもの。先に解析する。
     private var queue: [UUID] = []
+    /// 解析のしくみが変わったための読み直し。新しいものが片づいてから、少しずつ行う。
+    private var rereads: [UUID] = []
     private var running = false
 
     /// アプリを開いたとき・前面に戻ったときに呼ぶ。
@@ -16,18 +19,18 @@ final class Importer: ObservableObject {
         for entry in Inbox.readAll() {
             add(url: entry.item.url, text: entry.item.text, image: entry.image,
                 latitude: entry.item.latitude, longitude: entry.item.longitude,
-                date: entry.item.date, context: context)
+                date: entry.item.date, memo: entry.item.memo ?? "", context: context)
             Inbox.remove(entry.item)
         }
         // 前回、通信できずに終わったものをやり直す。
         let all = (try? context.fetch(FetchDescriptor<Item>())) ?? []
-        for item in all where !queue.contains(item.id) {
+        for item in all where !queue.contains(item.id) && !rereads.contains(item.id) {
             if !item.analyzed && item.attempts < 4 {
                 queue.append(item.id)
             } else if item.analysisVersion < Item.currentAnalysisVersion {
-                // 解析のしくみが新しくなったので、読み直す。
+                // 解析のしくみが新しくなったので、読み直す（新しいもののあとで）。
                 item.attempts = 0
-                queue.append(item.id)
+                rereads.append(item.id)
             }
         }
         try? context.save()
@@ -40,7 +43,7 @@ final class Importer: ObservableObject {
         guard !s.isEmpty else { return }
         if !s.lowercased().hasPrefix("http") { s = "https://" + s }
         guard URL(string: s)?.host != nil else { return }
-        add(url: s, text: nil, image: nil, latitude: nil, longitude: nil, date: Date(), context: context)
+        add(url: s, text: nil, image: nil, latitude: nil, longitude: nil, date: Date(), memo: "", context: context)
         try? context.save()
         run(context)
     }
@@ -59,12 +62,16 @@ final class Importer: ObservableObject {
     }
 
     private func add(url: String?, text: String?, image: Data?, latitude: Double?, longitude: Double?,
-                     date: Date, context: ModelContext) {
+                     date: Date, memo: String, context: ModelContext) {
         // 同じ URL は二重に登録せず、いちばん上に戻すだけ。
         if let url {
             let all = (try? context.fetch(FetchDescriptor<Item>())) ?? []
             if let existing = all.first(where: { $0.urlString == url }) {
                 existing.createdAt = date
+                if !memo.isEmpty, !existing.memo.contains(memo) {
+                    existing.memo = existing.memo.isEmpty ? memo : existing.memo + "\n" + memo
+                    contentChanged(existing, context: context)
+                }
                 return
             }
         }
@@ -72,18 +79,33 @@ final class Importer: ObservableObject {
                         isOwnImage: url == nil && image != nil, createdAt: date)
         item.latitude = latitude
         item.longitude = longitude
+        item.memo = memo
         context.insert(item)
         queue.append(item.id)
     }
 
     private func run(_ context: ModelContext) {
-        pending = queue.count
-        guard !running, !queue.isEmpty else { return }
+        pending = queue.count + rereads.count
+        guard !running, !(queue.isEmpty && rereads.isEmpty) else { return }
         running = true
         Task {
             await Embedder.shared.prepare()
-            while !queue.isEmpty {
-                let id = queue.removeFirst()
+            while !(queue.isEmpty && rereads.isEmpty) {
+                let id: UUID
+                if !queue.isEmpty {
+                    id = queue.removeFirst()
+                } else {
+                    // 読み直しは急がない。端末が熱いとき・低電力モードのときは次に開いたときへ回す。
+                    let info = ProcessInfo.processInfo
+                    if info.isLowPowerModeEnabled || info.thermalState == .serious || info.thermalState == .critical {
+                        rereads.removeAll()
+                        break
+                    }
+                    // 続けて回すと熱くなるので、1件ごとに間をあける。
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    if !queue.isEmpty { continue }
+                    id = rereads.removeFirst()
+                }
                 let all = (try? context.fetch(FetchDescriptor<Item>())) ?? []
                 if let item = all.first(where: { $0.id == id }) {
                     // 分類の言葉がばらつかないよう、すでに使っている分類を渡す。
@@ -94,8 +116,9 @@ final class Importer: ObservableObject {
                     await analyze(item, knownCategories: known)
                     try? context.save()
                 }
-                pending = queue.count
+                pending = queue.count + rereads.count
             }
+            pending = 0
             running = false
         }
     }
