@@ -378,10 +378,16 @@ enum Special {
     private static func social(meta: [String: String], reading r: inout Reading,
                                rawTitle: inout String, description: String, caption: inout String) {
         var author = rawTitle
-        for marker in [" on Instagram", " on TikTok", " on X", " on Threads", "(@", "（@", " | TikTok", " • Instagram"] {
+        // 英語の「名前 on Instagram: "…"」と、日本語の「名前 - Instagram: "…"」「名前さんはInstagramを…」の両方に合わせる。
+        for marker in [" on Instagram", " on TikTok", " on X", " on Threads", "(@", "（@",
+                       " - Instagram", " - TikTok", " - Threads", " | Instagram", " | TikTok", " | Threads",
+                       " • Instagram", " / X", "さんはInstagram", "さん: ", "さん：",
+                       ": \"", ": “", ":\"", ":“", "\n"] {
             if let range = author.range(of: marker) { author = String(author[..<range.lowerBound]) }
         }
-        r.author = author.trimmingCharacters(in: .whitespacesAndNewlines)
+        author = author.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 切り分けられずに投稿文まで残ったときは、投稿者として出さない。
+        r.author = author.count <= 40 ? author : ""
         // 「… likes, … comments - 名前 on 日付: "投稿文"」から投稿文を取り出す。
         if let m = Web.matches(":\\s*[\"“”](.+)[\"“”]\\s*\\.?\\s*$", in: description).first {
             caption = m[1]
